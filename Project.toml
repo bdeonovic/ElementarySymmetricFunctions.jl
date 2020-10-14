@@ -1,0 +1,13 @@
+name = "ElementarySymmetricFunctions"
+uuid = "777c1f86-6c82-42ca-a30b-c579d49eb024"
+authors = ["Benjamin Deonovic"]
+version = "0.1.0"
+
+[compat]
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
