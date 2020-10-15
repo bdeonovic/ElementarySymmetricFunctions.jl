@@ -20,6 +20,13 @@ end
     x = [3.5118, .6219, .2905, .8450, 1.8648]
     n = length(x)
 
-    @test esf_sum(x) ≈ naive_esf(x)
-    @test esf_sum_reg(x) ≈ (naive_esf(x) ./ binomial.(n,0:n))
+    naive_sol = naive_esf(x)
+    naive_sol_reg = naive_sol ./ binomial.(n,0:n)
+    @test esf_sum(x) ≈ naive_sol
+    @test esf_sum_reg(x) ≈ naive_sol_reg
+
+    @test esf_dc_group(x) ≈ naive_sol
+    @test esf_dc_group_reg(x) ≈ naive_sol_reg
+
+    @test esf_dc_fft(x) ≈ naive_sol
 end

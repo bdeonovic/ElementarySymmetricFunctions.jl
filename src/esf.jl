@@ -46,6 +46,7 @@ function esf_sum_reg!(S::AbstractArray{T,1}, x::AbstractArray{T,1}) where T <: R
     end
   end
 end
+
 """
     esf_sum_reg(x)
 
@@ -148,6 +149,7 @@ function esf_sum_dervs_1_reg!(P::AbstractArray{T,2}, x::AbstractVector{T}) where
     x[j] = xj
   end
 end
+
 function esf_sum_dervs_2(x::AbstractVector{T}) where T <: Real
   n = length(x)
   S = Vector{T}(undef,n+1)
@@ -173,6 +175,7 @@ function esf_sum_dervs_2!(H::AbstractArray{T,3}, x::AbstractVector{T}) where T <
     x[j] = xj
   end
 end
+
 function esf_sum_dervs_2_reg(x::AbstractVector{T}) where T <: Real
   n = length(x)
   S = Vector{T}(undef,n+1)
@@ -198,4 +201,171 @@ function esf_sum_dervs_2_reg!(H::AbstractArray{T,3}, x::AbstractVector{T}) where
     end
     x[j] = xj
   end
+end
+
+function esf_dc_fft!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
+                     x::AbstractArray{T,1}, k::D,
+                     group_sizes::AbstractArray{D,1},
+                     group_start_idx::AbstractArray{D,1}) where {T <: Real, D <: Integer}
+  n = length(x)
+  M = size(tempS)[2]
+  tempS .= zero(T)
+
+  #convolve initial subsets
+  @inbounds for g in 1:M
+    @views esf_sum!(tempS[1:(group_sizes[g]+1),g], 
+                    x[group_start_idx[g]:(group_start_idx[g]+group_sizes[g]-1)])
+    group_sizes[g] += 1
+  end
+  
+  while M > 1
+    next_avail_col = 1
+    @inbounds for g in 1:2:M
+      m = group_sizes[g] + group_sizes[g+1] - 1
+      @views filt!(S[1:m], tempS[1:group_sizes[g],g], one(T), tempS[1:m,g+1])
+      @views copyto!(tempS[1:m,next_avail_col], S[1:m]) 
+      group_sizes[next_avail_col] = m
+      next_avail_col += 1
+    end
+    M = div(M,2)
+  end
+end
+
+function esf_dc_fft(x::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
+  n = length(x)
+  k = min(floor(D, log2(n)), k)
+  M = 2^k
+  L = n/M
+  r = rem(n,M) / M
+  group_sizes = [fill(floor(D, L), D(M*(1-r))); fill(ceil(D, L), D(M*r))]
+  group_start_idx = cumsum(group_sizes) .- (group_sizes .- 1)
+
+  S = Vector{T}(undef,n+1)
+  tempS = zeros(T, n+1,M)
+
+  esf_dc_fft!(S, tempS, x, k, group_sizes, group_start_idx)
+  return S
+end
+
+function esf_dc_group!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
+                       x::AbstractArray{T,1}, k::D,
+                       group_sizes::AbstractArray{D,1},
+                       group_start_idx::AbstractArray{D,1}) where {T <: Real, D <: Integer}
+  n = length(x)
+  M = size(tempS)[2]
+
+  #convolve initial subsets
+  @inbounds for g in 1:M
+    @views esf_sum!(tempS[1:(group_sizes[g]+1),g], 
+                    x[group_start_idx[g]:(group_start_idx[g]+group_sizes[g]-1)])
+    group_sizes[g] += 1
+  end
+  
+  while M > 1
+    next_avail_col = 1
+    @inbounds for g in 1:2:M
+      m = group_sizes[g] + group_sizes[g+1] - 1
+      @views join_groups!(S[1:m], tempS[1:group_sizes[g+1],g+1], tempS[1:group_sizes[g],g])
+      @views copyto!(tempS[1:m,next_avail_col], S[1:m]) 
+      group_sizes[next_avail_col] = m
+      next_avail_col += 1
+    end
+    M = div(M,2)
+  end
+end
+
+function esf_dc_group(x::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
+  n = length(x)
+  k = min(floor(D, log2(n)), k)
+  M = 2^k
+  L = n/M
+  r = rem(n,M) / M
+
+  group_sizes = [fill(floor(D, L), D(M*(1-r))); fill(ceil(D, L), D(M*r))]
+  group_start_idx = cumsum(group_sizes) .- (group_sizes .- 1)
+
+  S = Vector{T}(undef,n+1)
+  tempS = zeros(T, n+1,M)
+
+  esf_dc_group!(S, tempS, x, k, group_sizes, group_start_idx)
+  return S
+end
+
+function esf_dc_group_reg!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
+                           x::AbstractArray{T,1}, k::D, 
+                           group_sizes::AbstractArray{D,1},
+                           group_start_idx::AbstractArray{D,1}) where {T <: Real, D <: Integer}
+  n = length(x)
+  M = size(tempS)[2]
+  tempS .= zero(T)
+
+  #convolve initial subsets
+  @inbounds for g in 1:M
+    @views esf_sum_reg!(tempS[1:(group_sizes[g]+1),g], 
+                        x[group_start_idx[g]:(group_start_idx[g]+group_sizes[g]-1)])
+    group_sizes[g] += 1
+  end
+  
+  while M > 1
+    next_avail_col = 1
+    @inbounds for g in 1:2:M
+      m = group_sizes[g] + group_sizes[g+1] - 1
+      @views join_groups_reg!(S[1:m], tempS[1:group_sizes[g+1],g+1], tempS[1:group_sizes[g],g])
+      @views copyto!(tempS[1:m,next_avail_col], S[1:m]) 
+      group_sizes[next_avail_col] = m
+      next_avail_col += 1
+    end
+    M = div(M,2)
+  end
+end
+
+function esf_dc_group_reg(x::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
+  n = length(x)
+  k = min(floor(D, log2(n)), k)
+  M = 2^k
+  L = n/M
+  r = rem(n,M) / M
+
+  group_sizes = [fill(floor(D, L), D(M*(1-r))); fill(ceil(D, L), D(M*r))]
+  group_start_idx = cumsum(group_sizes) .- (group_sizes .- 1)
+
+  S = Vector{T}(undef,n+1)
+  tempS = zeros(T, n+1,M)
+
+  esf_dc_group_reg!(S, tempS, x, k, group_sizes, group_start_idx)
+  return S
+end
+
+function join_groups!(S::AbstractArray{T,1}, gamma1::AbstractArray{T,1}, 
+                      gamma2::AbstractArray{T,1}) where T <: Real
+  k1 = length(gamma1) - 1
+  k2 = length(gamma2) - 1
+  fill!(S, zero(T))
+
+  @inbounds for g in 1:(k1+k2+1)
+    for i in 1:g
+      S[g] += (g-i+1 > length(gamma2)) || (i > length(gamma1)) ? 
+        0.0 : gamma1[i] * gamma2[g-i+1]
+    end
+  end
+end
+
+function join_groups_reg!(S::AbstractArray{T,1}, gamma1::AbstractArray{T,1}, 
+                          gamma2::AbstractArray{T,1}) where T <: Real
+  k1 = length(gamma1) - 1
+  k2 = length(gamma2) - 1
+  fill!(S, zero(T))
+  S[1] = one(T)
+
+  @inbounds for g in 2:(k1+k2+1)
+    for i in 1:g
+      S[g] += (g-i+1 > length(gamma2)) || (i > length(gamma1)) ? 
+        0.0 : gamma1[i] * gamma2[g-i+1] * 
+              exp(lbinom(k1,i-1)+lbinom(k2,g-i)-lbinom(k1+k2,g-1))
+    end
+  end
+end
+
+function lbinom(n::T, s::T) where T <: Real
+    -log(n+1.0) - logbeta(n-s+1.0, s+1.0)
 end
