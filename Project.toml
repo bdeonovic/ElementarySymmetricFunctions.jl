@@ -8,6 +8,7 @@ DSP = "717857b8-e6f2-59f4-9121-6e50c889abd2"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [compat]
+SpecialFunctions = "0.10"
 julia = "1"
 
 [extras]
