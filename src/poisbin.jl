@@ -177,6 +177,52 @@ function poisbin_dc_fft(p::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: In
   return S
 end
 
+function poisbin_dc_fft2!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
+                          x::AbstractArray{T,1}, si::AbstractArray{T,1},
+                          group_sizes::AbstractArray{D,1},
+                          group_start_idx::AbstractArray{D,1}) where {T <: Real, D <: Integer}
+  n = length(x)
+  M = size(tempS)[2]
+
+  #convolve initial subsets
+  @inbounds for g in 1:M
+    @views poisbin_sum_taub!(tempS[1:(group_sizes[g]+1),g], 
+                             p[group_start_idx[g]:(group_start_idx[g]+group_sizes[g]-1)])
+    group_sizes[g] += 1
+  end
+  
+  while M > 1
+    next_avail_col = 1
+    @inbounds for g in 1:2:M
+      m = group_sizes[g] + group_sizes[g+1] - 1
+      si .= zero(T)
+      @views own_filt!(S[1:m], tempS[1:group_sizes[g],g], tempS[1:m,g+1], si[1:(group_sizes[g]-1)])
+      @views copyto!(tempS[1:m,next_avail_col], S[1:m]) 
+      group_sizes[next_avail_col] = m
+      next_avail_col += 1
+    end
+    M = div(M,2)
+  end
+end
+
+function poisbin_dc_fft2(p::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
+  n = length(x)
+  k = min(floor(D, log2(n)), k)
+  M = 2^k
+  L = n/M
+  r = rem(n,M) / M
+
+  group_sizes = [fill(floor(D, L), D(M*(1-r))); fill(ceil(D, L), D(M*r))]
+  group_start_idx = cumsum(group_sizes) .- (group_sizes .- 1)
+
+  S = Vector{T}(undef,n+1)
+  tempS = zeros(T, n+1,M)
+  si = zeros(T, n)
+
+  poisbin_dc_fft2!(S, tempS, p, si, group_sizes, group_start_idx)
+  return S
+end
+
 function poisbin_dc_group!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
                            p::AbstractArray{T,1}, k::D,
                            group_sizes::AbstractArray{D,1},

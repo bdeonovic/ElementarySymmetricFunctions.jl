@@ -31,3 +31,17 @@ end
 function lbinom(n::T, s::T) where T <: Real
     -log(n+1.0) - logbeta(n-s+1.0, s+1.0)
 end
+
+#adopted from DSP.jl
+function own_filt!(out::AbstractArray{T,1}, b::AbstractArray{T,1}, x::AbstractArray{T,1}, si::AbstractArray{T,1}) where T <: Real
+    silen = length(si)
+    @inbounds for i in 1:length(x)
+        xi = x[i]
+        val = muladd(xi, b[1], si[1])
+        for j in 1:(silen-1)
+            si[j] = muladd(xi, b[j+1], si[j+1])
+        end
+        si[silen] = b[silen+1]*xi
+        out[i] = val
+    end
+end
