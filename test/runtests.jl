@@ -31,10 +31,8 @@ end
     @test esf_sum(x) ≈ naive_sol
     @test esf_sum_reg(x) ≈ naive_sol_reg
 
-    @test esf_dc_group(x) ≈ naive_sol
-    @test esf_dc_group_reg(x) ≈ naive_sol_reg
-
     @test esf_dc_fft(x) ≈ naive_sol
+    @test esf_dc_fft_reg(x) ≈ naive_sol_reg
 
     p = x ./ (1 .+ x)
     naive_sol = naive_pb(p)
@@ -44,5 +42,4 @@ end
     @test poisbin_fft_cf(p) ≈ naive_sol
     @test poisbin_chen(p) ≈ naive_sol
     @test poisbin_dc_fft(p) ≈ naive_sol
-    @test poisbin_dc_group(p) ≈ naive_sol
 end
