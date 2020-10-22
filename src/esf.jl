@@ -204,51 +204,7 @@ function esf_sum_dervs_2_reg!(H::AbstractArray{T,3}, x::AbstractVector{T}) where
 end
 
 function esf_dc_fft!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
-                     x::AbstractArray{T,1}, k::D,
-                     group_sizes::AbstractArray{D,1},
-                     group_start_idx::AbstractArray{D,1}) where {T <: Real, D <: Integer}
-  n = length(x)
-  M = size(tempS)[2]
-  tempS .= zero(T)
-
-  #convolve initial subsets
-  @inbounds for g in 1:M
-    @views esf_sum!(tempS[1:(group_sizes[g]+1),g], 
-                    x[group_start_idx[g]:(group_start_idx[g]+group_sizes[g]-1)])
-    group_sizes[g] += 1
-  end
-  
-  while M > 1
-    next_avail_col = 1
-    @inbounds for g in 1:2:M
-      m = group_sizes[g] + group_sizes[g+1] - 1
-      @views filt!(S[1:m], tempS[1:group_sizes[g],g], one(T), tempS[1:m,g+1])
-      @views copyto!(tempS[1:m,next_avail_col], S[1:m]) 
-      group_sizes[next_avail_col] = m
-      next_avail_col += 1
-    end
-    M = div(M,2)
-  end
-end
-
-function esf_dc_fft(x::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
-  n = length(x)
-  k = min(floor(D, log2(n)), k)
-  M = 2^k
-  L = n/M
-  r = rem(n,M) / M
-  group_sizes = [fill(floor(D, L), D(M*(1-r))); fill(ceil(D, L), D(M*r))]
-  group_start_idx = cumsum(group_sizes) .- (group_sizes .- 1)
-
-  S = Vector{T}(undef,n+1)
-  tempS = zeros(T, n+1,M)
-
-  esf_dc_fft!(S, tempS, x, k, group_sizes, group_start_idx)
-  return S
-end
-
-function esf_dc_group!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
-                       x::AbstractArray{T,1}, k::D,
+                       x::AbstractArray{T,1}, si::AbstractArray{T,1},
                        group_sizes::AbstractArray{D,1},
                        group_start_idx::AbstractArray{D,1}) where {T <: Real, D <: Integer}
   n = length(x)
@@ -265,7 +221,8 @@ function esf_dc_group!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2},
     next_avail_col = 1
     @inbounds for g in 1:2:M
       m = group_sizes[g] + group_sizes[g+1] - 1
-      @views join_groups!(S[1:m], tempS[1:group_sizes[g+1],g+1], tempS[1:group_sizes[g],g])
+      si .= zero(T)
+      @views _filt!(S[1:m], tempS[1:group_sizes[g],g], tempS[1:m,g+1], si[1:(group_sizes[g]-1)])
       @views copyto!(tempS[1:m,next_avail_col], S[1:m]) 
       group_sizes[next_avail_col] = m
       next_avail_col += 1
@@ -274,7 +231,7 @@ function esf_dc_group!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2},
   end
 end
 
-function esf_dc_group(x::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
+function esf_dc_fft(x::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
   n = length(x)
   k = min(floor(D, log2(n)), k)
   M = 2^k
@@ -286,13 +243,14 @@ function esf_dc_group(x::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Inte
 
   S = Vector{T}(undef,n+1)
   tempS = zeros(T, n+1,M)
+  si = zeros(T, n)
 
-  esf_dc_group!(S, tempS, x, k, group_sizes, group_start_idx)
+  esf_dc_fft!(S, tempS, x, si, group_sizes, group_start_idx)
   return S
 end
 
-function esf_dc_group_reg!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
-                           x::AbstractArray{T,1}, k::D, 
+function esf_dc_fft_reg!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
+                           x::AbstractArray{T,1}, si::AbstractArray{T,1}, 
                            group_sizes::AbstractArray{D,1},
                            group_start_idx::AbstractArray{D,1}) where {T <: Real, D <: Integer}
   n = length(x)
@@ -310,7 +268,8 @@ function esf_dc_group_reg!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2},
     next_avail_col = 1
     @inbounds for g in 1:2:M
       m = group_sizes[g] + group_sizes[g+1] - 1
-      @views join_groups_reg!(S[1:m], tempS[1:group_sizes[g+1],g+1], tempS[1:group_sizes[g],g])
+      si .= zero(T)
+      @views _filt_reg!(S[1:m], tempS[1:group_sizes[g],g], tempS[1:m,g+1], si[1:(group_sizes[g]-1)], group_sizes[g]-1,group_sizes[g+1]-1)
       @views copyto!(tempS[1:m,next_avail_col], S[1:m]) 
       group_sizes[next_avail_col] = m
       next_avail_col += 1
@@ -319,7 +278,7 @@ function esf_dc_group_reg!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2},
   end
 end
 
-function esf_dc_group_reg(x::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
+function esf_dc_fft_reg(x::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
   n = length(x)
   k = min(floor(D, log2(n)), k)
   M = 2^k
@@ -331,7 +290,8 @@ function esf_dc_group_reg(x::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: 
 
   S = Vector{T}(undef,n+1)
   tempS = zeros(T, n+1,M)
+  si = zeros(T, n)
 
-  esf_dc_group_reg!(S, tempS, x, k, group_sizes, group_start_idx)
+  esf_dc_fft_reg!(S, tempS, x, si, group_sizes, group_start_idx)
   return S
 end

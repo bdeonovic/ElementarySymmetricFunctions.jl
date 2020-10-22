@@ -1,33 +1,53 @@
-function join_groups!(S::AbstractArray{T,1}, gamma1::AbstractArray{T,1}, 
-                      gamma2::AbstractArray{T,1}) where T <: Real
-  k1 = length(gamma1) - 1
-  k2 = length(gamma2) - 1
-  fill!(S, zero(T))
-
-  @inbounds for g in 1:(k1+k2+1)
-    for i in 1:g
-      S[g] += (g-i+1 > length(gamma2)) || (i > length(gamma1)) ? 
-        0.0 : gamma1[i] * gamma2[g-i+1]
-    end
-  end
+function lbinom(n::T, s::T) where T <: Integer
+    logabsbinomial(n,s)[1]
 end
 
-function join_groups_reg!(S::AbstractArray{T,1}, gamma1::AbstractArray{T,1}, 
-                          gamma2::AbstractArray{T,1}) where T <: Real
-  k1 = length(gamma1) - 1
-  k2 = length(gamma2) - 1
-  fill!(S, zero(T))
-  S[1] = one(T)
-
-  @inbounds for g in 2:(k1+k2+1)
-    for i in 1:g
-      S[g] += (g-i+1 > length(gamma2)) || (i > length(gamma1)) ? 
-        0.0 : gamma1[i] * gamma2[g-i+1] * 
-              exp(lbinom(k1,i-1)+lbinom(k2,g-i)-lbinom(k1+k2,g-1))
+# A simple implementation of a DFT to avoid introducing a dependency
+# on an external FFT package just for this one distribution
+# adapted from Distributions.jl
+function _dft!(y::Vector{T}, x::Vector{T}) where T
+    n = length(x)
+    y .= zero(T)
+    @inbounds for j = 0:n-1, k = 0:n-1
+        y[k+1] += x[j+1] * cis(-π * T(2 * mod(j * k, n)) / n)
     end
-  end
 end
 
-function lbinom(n::T, s::T) where T <: Real
-    -log(n+1.0) - logbeta(n-s+1.0, s+1.0)
+#adopted from DSP.jl
+function _filt!(out::AbstractArray{T,1}, b::AbstractArray{T,1}, x::AbstractArray{T,1}, si::AbstractArray{T,1}) where T <: Real
+    silen = length(si)
+    @inbounds for i in 1:length(x)
+        xi = x[i]
+        val = muladd(xi, b[1], si[1])
+        for j in 1:(silen-1)
+            si[j] = muladd(xi, b[j+1], si[j+1])
+        end
+        si[silen] = b[silen+1]*xi
+        out[i] = val
+    end
+end
+
+function _filt_reg!(out::AbstractArray{T,1}, b::AbstractArray{T,1}, x::AbstractArray{T,1}, si::AbstractArray{T,1}, k1::D, k2::D) where {T <: Real, D <: Integer}
+    silen = length(si)
+    for j in 1:(silen-1)
+        adj1 = exp(lbinom(k1,j))
+        si[j] = x[1]*b[j+1]*adj1
+    end
+    adj1 = exp(lbinom(k1,silen))
+    si[silen] = b[silen+1]*x[1]*adj1
+    out[1] = one(T)
+
+    @inbounds for i in 2:length(x)
+        xi = x[i]
+        adj1 = exp(lbinom(k2,i-1)-lbinom(k1+k2,i-1))
+        adj2 = (i-1) / (k1+k2-i+2)
+        val = muladd(xi, b[1]*adj1, si[1]*adj2)
+        for j in 1:(silen-1)
+            adj1 = exp(lbinom(k1,j)+lbinom(k2,i-1)-lbinom(k1+k2,i-1))
+            si[j] = muladd(xi, b[j+1]*adj1, si[j+1]*adj2)
+        end
+        adj1 = exp(lbinom(k1,silen)+lbinom(k2,i-1)-lbinom(k1+k2,i-1))
+        si[silen] = b[silen+1]*xi*adj1
+        out[i] = val
+    end
 end

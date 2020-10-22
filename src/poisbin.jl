@@ -1,4 +1,5 @@
 function poisbin_fft!(S::AbstractArray{T,1}, y::AbstractArray{Complex{T},1}, 
+                      z::AbstractArray{Complex{T},1},
                       p::AbstractArray{T,1}) where T <: Real
   n = length(p)
   omega = 2pi/(n+1)
@@ -7,16 +8,17 @@ function poisbin_fft!(S::AbstractArray{T,1}, y::AbstractArray{Complex{T},1},
       y[k+1] *= p[m] * exp(im * omega * k) + (1-p[m])
     end
   end
-  fft!(y)
-  S .= real.(y) / (n+1)
+  _dft!(z,y)
+  S .= real.(z) / (n+1)
 end
 
 function poisbin_fft(p::AbstractArray{T,1}) where T <: Real
   n = length(p)
   S = Vector{T}(undef,n+1)
   y = ones(Complex{T}, n+1)
+  z = Vector{Complex{T}}(undef,n+1)
 
-  poisbin_fft!(S, y, p)
+  poisbin_fft!(S, y, z, p)
   return S
 end
 
@@ -44,16 +46,6 @@ function poisbin_fft_cf!(S::AbstractArray{T,1}, y::AbstractArray{Complex{T},1},
   end
   _dft!(z, y)
   S .= real.(z)
-end
-
-# A simple implementation of a DFT to avoid introducing a dependency
-# on an external FFT package just for this one distribution
-function _dft!(y::Vector{T}, x::Vector{T}) where T
-    n = length(x)
-    y .= zero(T)
-    @inbounds for j = 0:n-1, k = 0:n-1
-        y[k+1] += x[j+1] * cis(-π * T(2 * mod(j * k, n)) / n)
-    end
 end
 
 function poisbin_fft_cf(p::AbstractArray{T,1}) where T <: Real
@@ -136,9 +128,9 @@ function poisbin_sum_taub_dervs_2!(H::AbstractArray{T,3}, p::AbstractVector{T}) 
 end
 
 function poisbin_dc_fft!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
-                         p::AbstractArray{T,1}, k::D,
-                         group_sizes::AbstractArray{D,1},
-                         group_start_idx::AbstractArray{D,1}) where {T <: Real, D <: Integer}
+                          p::AbstractArray{T,1}, si::AbstractArray{T,1},
+                          group_sizes::AbstractArray{D,1},
+                          group_start_idx::AbstractArray{D,1}) where {T <: Real, D <: Integer}
   n = length(p)
   M = size(tempS)[2]
 
@@ -153,7 +145,8 @@ function poisbin_dc_fft!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2},
     next_avail_col = 1
     @inbounds for g in 1:2:M
       m = group_sizes[g] + group_sizes[g+1] - 1
-      @views filt!(S[1:m], tempS[1:group_sizes[g],g], 1, tempS[1:m,g+1])
+      si .= zero(T)
+      @views _filt!(S[1:m], tempS[1:group_sizes[g],g], tempS[1:m,g+1], si[1:(group_sizes[g]-1)])
       @views copyto!(tempS[1:m,next_avail_col], S[1:m]) 
       group_sizes[next_avail_col] = m
       next_avail_col += 1
@@ -161,63 +154,22 @@ function poisbin_dc_fft!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2},
     M = div(M,2)
   end
 end
+
 function poisbin_dc_fft(p::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
   n = length(p)
   k = min(floor(D, log2(n)), k)
   M = 2^k
   L = n/M
   r = rem(n,M) / M
+
   group_sizes = [fill(floor(D, L), D(M*(1-r))); fill(ceil(D, L), D(M*r))]
   group_start_idx = cumsum(group_sizes) .- (group_sizes .- 1)
 
   S = Vector{T}(undef,n+1)
   tempS = zeros(T, n+1,M)
+  si = zeros(T, n)
 
-  poisbin_dc_fft!(S, tempS, p, k, group_sizes, group_start_idx)
-  return S
-end
-
-function poisbin_dc_group!(S::AbstractArray{T,1}, tempS::AbstractArray{T,2}, 
-                           p::AbstractArray{T,1}, k::D,
-                           group_sizes::AbstractArray{D,1},
-                           group_start_idx::AbstractArray{D,1}) where {T <: Real, D <: Integer}
-  n = length(p)
-  M = size(tempS)[2]
-  tempS .= zero(T)
-
-  #convolve initial subsets
-  @inbounds for g in 1:M
-    @views poisbin_sum_taub!(tempS[1:(group_sizes[g]+1),g], 
-                             p[group_start_idx[g]:(group_start_idx[g]+group_sizes[g]-1)])
-    group_sizes[g] += 1
-  end
-  
-  while M > 1
-    next_avail_col = 1
-    @inbounds for g in 1:2:M
-      m = group_sizes[g] + group_sizes[g+1] - 1
-      @views join_groups!(S[1:m], tempS[1:group_sizes[g+1],g+1], tempS[1:group_sizes[g],g])
-      @views copyto!(tempS[1:m,next_avail_col], S[1:m]) 
-      group_sizes[next_avail_col] = m
-      next_avail_col += 1
-    end
-    M = div(M,2)
-  end
-end
-
-function poisbin_dc_group(p::AbstractArray{T,1}, k::D=2) where {T <: Real, D <: Integer}
-  n = length(p)
-  k = min(floor(D, log2(n)), k)
-  M = 2^k
-  L = n/M
-  r = rem(n,M) / M
-  group_sizes = [fill(floor(D, L), D(M*(1-r))); fill(ceil(D, L), D(M*r))]
-  group_start_idx = cumsum(group_sizes) .- (group_sizes .- 1)
-
-  S = Vector{T}(undef,n+1)
-  tempS = zeros(T, n+1,M)
-
-  poisbin_dc_group!(S, tempS, p, k, group_sizes, group_start_idx)
+  poisbin_dc_fft!(S, tempS, p, si, group_sizes, group_start_idx)
   return S
 end
 
