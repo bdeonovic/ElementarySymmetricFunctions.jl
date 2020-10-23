@@ -1,5 +1,9 @@
 function lbinom(n::T, s::T) where T <: Integer
-    logabsbinomial(n,s)[1]
+    if n < 60
+        log(binomial(n,s))
+    else
+        logabsbinomial(n,s)[1]
+    end
 end
 
 # A simple implementation of a DFT to avoid introducing a dependency

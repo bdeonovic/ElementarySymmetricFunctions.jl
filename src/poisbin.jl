@@ -72,6 +72,13 @@ function poisbin_sum_taub!(S::AbstractArray{T}, p::AbstractArray{T}) where T <: 
   end
 end
 
+function poisbin_sum_taub(p::AbstractArray{T,1}) where T <: Real
+  n = length(p)
+  S = Vector{T}(undef,n+1)
+  poisbin_sum_taub!(S,p)
+  return S
+end
+
 function poisbin_sum_taub_log!(S::AbstractArray{T}, p::AbstractArray{T}) where T <: Real
   n = length(p)
   fill!(S,-Inf)
@@ -94,10 +101,10 @@ function poisbin_sum_taub_log!(S::AbstractArray{T}, p::AbstractArray{T}) where T
   end
 end
 
-function poisbin_sum_taub(p::AbstractArray{T,1}) where T <: Real
+function poisbin_sum_taub_log(p::AbstractArray{T,1}) where T <: Real
   n = length(p)
   S = Vector{T}(undef,n+1)
-  poisbin_sum_taub!(S,p)
+  poisbin_sum_taub_log!(S,p)
   return S
 end
 
