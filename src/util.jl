@@ -33,7 +33,7 @@ end
 
 function _filt_reg!(out::AbstractArray{T,1}, b::AbstractArray{T,1}, x::AbstractArray{T,1}, si::AbstractArray{T,1}, k1::D, k2::D) where {T <: Real, D <: Integer}
     silen = length(si)
-    for j in 1:(silen-1)
+    @inbounds for j in 1:(silen-1)
         adj1 = exp(lbinom(k1,j))
         si[j] = x[1]*b[j+1]*adj1
     end
